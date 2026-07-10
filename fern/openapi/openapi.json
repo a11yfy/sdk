@@ -1,0 +1,1003 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "a11yfy REST API",
+    "version": "1.0.0",
+    "description": "Programmable B2B REST API for a11yfy — PDF accessibility remediation with API-key authentication."
+  },
+  "servers": [
+    {
+      "url": "https://a11yfy.com",
+      "description": "Production (live keys)"
+    }
+  ],
+  "security": [
+    {
+      "ApiKeyAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Jobs",
+      "description": "Async PDF processing launch and status polling"
+    },
+    {
+      "name": "Billing",
+      "description": "Credit balance and usage"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "API key in format `ak_live_...` or `ak_test_...`. The key is obtained from the a11yfy web UI (Account → API Keys)."
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Missing or invalid API key",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "InsufficientCredits": {
+        "description": "Not enough credits to process the job",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Too many requests — retry after the given delay",
+        "headers": {
+          "Retry-After": {
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Seconds to wait before retrying"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Job not found for the given ID",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "ValidationFailed": {
+        "description": "Invalid request parameters",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "InsufficientScope": {
+        "description": "The API key lacks the required scope for this operation",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Machine-readable error code",
+            "example": "invalid_api_key"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable error message (English)",
+            "example": "Invalid API key."
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ]
+      },
+      "JobAcceptedResponse": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique job identifier",
+            "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "processing",
+              "done",
+              "failed",
+              "partial"
+            ],
+            "description": "Current job status. 'partial' is terminal: some documents of the job succeeded, others failed."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 creation timestamp"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "created_at"
+        ]
+      },
+      "JobListResponse": {
+        "type": "object",
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobListItem"
+            },
+            "description": "Jobs of the organization, newest first"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Opaque pagination cursor — pass as ?cursor= to fetch the next page. Null when there are no more results."
+          }
+        },
+        "required": [
+          "jobs",
+          "next_cursor"
+        ]
+      },
+      "JobListItem": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique job identifier"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "processing",
+              "done",
+              "failed",
+              "partial"
+            ],
+            "description": "Current job status. 'partial' is terminal: some documents of the job succeeded, others failed."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 creation timestamp"
+          },
+          "filename": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Original filename of the uploaded PDF (null for legacy jobs)"
+          },
+          "credits_used": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Credits consumed (null until quoted)"
+          },
+          "treatment": {
+            "type": "string",
+            "enum": [
+              "technical",
+              "full",
+              "noop"
+            ],
+            "description": "Remediation type applied: 'technical' (lower-cost tag-level repair), 'full' (complete rebuild), or 'noop' (document was already compliant)."
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "created_at",
+          "filename",
+          "credits_used"
+        ]
+      },
+      "JobStatusResponse": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique job identifier",
+            "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "processing",
+              "done",
+              "failed",
+              "partial"
+            ],
+            "description": "Current job status. 'partial' is terminal: some documents of the job succeeded, others failed."
+          },
+          "credits_used": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Credits consumed (null until done)"
+          },
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "description": "Error details if status is \"failed\""
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "credits_used"
+        ]
+      },
+      "JobResultResponse": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique job identifier"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "failed",
+              "partial",
+              "pending",
+              "processing"
+            ],
+            "description": "Job status. Terminal values: 'done', 'failed', 'partial' (mixed multi-document outcome)."
+          },
+          "credits_used": {
+            "type": "integer",
+            "description": "Actual credits consumed"
+          },
+          "treatment": {
+            "type": "string",
+            "enum": [
+              "technical",
+              "full",
+              "noop"
+            ],
+            "description": "Remediation type applied: 'technical' (lower-cost tag-level repair), 'full' (complete rebuild), or 'noop' (document was already compliant)."
+          },
+          "output_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri",
+            "description": "Presigned URL to the remediated PDF (may expire)"
+          },
+          "before": {
+            "type": "object",
+            "properties": {
+              "issues": {
+                "type": "integer"
+              },
+              "pages": {
+                "type": "integer"
+              }
+            },
+            "description": "Pre-remediation diagnostic summary"
+          },
+          "after": {
+            "type": "object",
+            "properties": {
+              "issues": {
+                "type": "integer"
+              },
+              "pages": {
+                "type": "integer"
+              }
+            },
+            "description": "Post-remediation diagnostic summary"
+          },
+          "certificate": {
+            "type": "object",
+            "properties": {
+              "certificate_id": {
+                "type": "string",
+                "description": "Compliance certificate identifier",
+                "example": "A11Y-2026-07-3F9K2M"
+              },
+              "download_url": {
+                "type": "string",
+                "format": "uri",
+                "description": "Stable URL to download the certificate PDF (Bearer API key required)"
+              },
+              "verify_url": {
+                "type": "string",
+                "format": "uri",
+                "description": "Public verification page for this certificate (no auth required)"
+              }
+            },
+            "required": [
+              "certificate_id",
+              "download_url",
+              "verify_url"
+            ],
+            "description": "Compliance certificate for the remediated output. Present only when the output passed machine validation (veraPDF) and a certificate was issued."
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "credits_used",
+          "output_url"
+        ]
+      },
+      "BalanceResponse": {
+        "type": "object",
+        "properties": {
+          "credits": {
+            "type": "integer",
+            "description": "Total available credit balance"
+          },
+          "subscription": {
+            "type": "integer",
+            "description": "Credits from active subscriptions"
+          },
+          "one_time": {
+            "type": "integer",
+            "description": "Credits from one-time purchases"
+          }
+        },
+        "required": [
+          "credits",
+          "subscription",
+          "one_time"
+        ]
+      },
+      "UsageResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageItem"
+            },
+            "description": "List of past jobs with credit consumption"
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "UsageItem": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Job identifier"
+          },
+          "credits_used": {
+            "type": "integer",
+            "description": "Credits consumed by this job"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Job creation timestamp"
+          },
+          "treatment": {
+            "type": "string",
+            "enum": [
+              "technical",
+              "full",
+              "noop"
+            ],
+            "description": "Remediation type applied: 'technical' (lower-cost tag-level repair), 'full' (complete rebuild), or 'noop' (document was already compliant)."
+          }
+        },
+        "required": [
+          "job_id",
+          "credits_used",
+          "created_at"
+        ]
+      },
+      "CertificateListResponse": {
+        "type": "object",
+        "properties": {
+          "certificates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CertificateInfo"
+            },
+            "description": "Matching certificates, newest first. The first entry with superseded_by = null is the current one."
+          }
+        },
+        "required": [
+          "certificates"
+        ]
+      },
+      "CertificateInfo": {
+        "type": "object",
+        "properties": {
+          "certificate_id": {
+            "type": "string",
+            "description": "Certificate identifier",
+            "example": "A11Y-2026-07-3F9K2M"
+          },
+          "job_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Job that produced the certified output (null for detached certificates)"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 issuance timestamp"
+          },
+          "treatment": {
+            "type": "string",
+            "enum": [
+              "technical",
+              "full"
+            ],
+            "description": "Remediation type the certificate attests"
+          },
+          "page_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Page count of the certified document"
+          },
+          "output_sha256": {
+            "type": "string",
+            "description": "SHA-256 of the certified (remediated) PDF — matches the file byte-for-byte"
+          },
+          "superseded_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Identifier of a newer certificate that replaces this one (after re-edit/regeneration). Null = this certificate is current."
+          },
+          "download_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Stable URL to download the certificate PDF (Bearer API key required)"
+          },
+          "verify_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Public verification page for this certificate (no auth required)"
+          }
+        },
+        "required": [
+          "certificate_id",
+          "job_id",
+          "issued_at",
+          "treatment",
+          "page_count",
+          "output_sha256",
+          "superseded_by",
+          "download_url",
+          "verify_url"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/v1/jobs": {
+      "post": {
+        "summary": "Launch PDF processing",
+        "operationId": "createJob",
+        "description": "Single call that launches the full remediation pipeline:\ndiagnostics → credit reservation → processing.\nReturns a `job_id` immediately for status polling.",
+        "tags": [
+          "Jobs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "description": "Deduplication key — reused within 24h returns the stored response",
+              "example": "550e8400-e29b-41d4-a716-446655440000"
+            },
+            "required": false,
+            "description": "Deduplication key — reused within 24h returns the stored response",
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "PDF file (multipart/form-data).",
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "PDF file to remediate"
+                  },
+                  "webhook_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Optional callback URL for HMAC-signed completion webhook",
+                    "example": "https://partner.example.com/a11yfy-webhook"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Job accepted — processing started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAcceptedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "402": {
+            "$ref": "#/components/responses/InsufficientCredits"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "get": {
+        "summary": "List jobs",
+        "operationId": "listJobs",
+        "description": "Returns the jobs of the organization, newest first, with cursor-based\npagination. Pass the returned `next_cursor` as `?cursor=` to fetch the\nnext page; `next_cursor: null` means there are no more results.",
+        "tags": [
+          "Jobs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Page size (1–100, default 20)"
+            },
+            "required": false,
+            "description": "Page size (1–100, default 20)",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Opaque pagination cursor from a previous response"
+            },
+            "required": false,
+            "description": "Opaque pagination cursor from a previous response",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "processing",
+                "done",
+                "failed",
+                "partial"
+              ],
+              "description": "Filter by job status"
+            },
+            "required": false,
+            "description": "Filter by job status",
+            "name": "status",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated job list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/jobs/{id}": {
+      "get": {
+        "operationId": "getJob",
+        "summary": "Get job status",
+        "description": "Returns the current job status: `pending`, `processing`, `done`, or `failed`.\nCan be polled during processing.",
+        "tags": [
+          "Jobs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Job identifier from POST /v1/jobs response"
+            },
+            "required": true,
+            "description": "Job identifier from POST /v1/jobs response",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/jobs/{id}/result": {
+      "get": {
+        "operationId": "getJobResult",
+        "summary": "Get job result",
+        "description": "Returns the completed job result: output URL, credits consumed,\npre/post remediation diagnostics.",
+        "tags": [
+          "Jobs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Job identifier from POST /v1/jobs response"
+            },
+            "required": true,
+            "description": "Job identifier from POST /v1/jobs response",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResultResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/balance": {
+      "get": {
+        "operationId": "getBalance",
+        "summary": "Get credit balance",
+        "description": "Returns the organization's current credit balance with breakdown:\nsubscription credits, one-time purchase credits, and total.",
+        "tags": [
+          "Billing"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Credit balance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BalanceResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/usage": {
+      "get": {
+        "operationId": "getUsage",
+        "summary": "Get usage history",
+        "description": "Returns the list of past jobs with credit consumption and timestamps.",
+        "tags": [
+          "Billing"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/certificates": {
+      "get": {
+        "operationId": "findCertificates",
+        "summary": "Find certificates",
+        "description": "Looks up compliance certificates by the job that produced them\n(`job_id`) or by the SHA-256 of the remediated PDF (`output_sha256`).\nProvide exactly one of the two parameters. Returns the full supersede\nchain, newest first — the entry with `superseded_by: null` is current.",
+        "tags": [
+          "Certificates"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Job identifier from POST /v1/jobs response"
+            },
+            "required": false,
+            "description": "Job identifier from POST /v1/jobs response",
+            "name": "job_id",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "description": "SHA-256 hash (lowercase hex) of the remediated PDF file"
+            },
+            "required": false,
+            "description": "SHA-256 hash (lowercase hex) of the remediated PDF file",
+            "name": "output_sha256",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching certificates (empty array when none exist)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificateListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/certificates/{certId}": {
+      "get": {
+        "operationId": "getCertificate",
+        "summary": "Get certificate metadata",
+        "description": "Returns the metadata of a single compliance certificate, including its\ndownload and public verification URLs.",
+        "tags": [
+          "Certificates"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^A11Y-\\d{4}-\\d{2}-[0-9A-Z]{6}$",
+              "description": "Certificate identifier",
+              "example": "A11Y-2026-07-3F9K2M"
+            },
+            "required": true,
+            "description": "Certificate identifier",
+            "name": "certId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Certificate metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificateInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/certificates/{certId}/download": {
+      "get": {
+        "operationId": "downloadCertificate",
+        "summary": "Download certificate PDF",
+        "description": "Streams the certificate as a PDF/UA-compliant PDF file. The file is\nimmutable: re-issued certificates get a new identifier, the old file\nnever changes.",
+        "tags": [
+          "Certificates"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^A11Y-\\d{4}-\\d{2}-[0-9A-Z]{6}$",
+              "description": "Certificate identifier",
+              "example": "A11Y-2026-07-3F9K2M"
+            },
+            "required": true,
+            "description": "Certificate identifier",
+            "name": "certId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Certificate PDF",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

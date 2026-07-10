@@ -1,0 +1,18 @@
+# Node
+node_modules/
+dist/
+
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+build/
+dist-py/
+.pytest_cache/
+
+# Fern
+fern/.definition/
+.fern/
+
+# OS/editor
+.DS_Store

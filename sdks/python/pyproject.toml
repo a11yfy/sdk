@@ -1,0 +1,57 @@
+[project]
+name = "a11yfy"
+version = "0.1.0"
+description = "Official Python SDK for the a11yfy PDF accessibility remediation API"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "a11yfy", email = "hello@a11yfy.com" }]
+requires-python = ">=3.10"
+keywords = ["a11yfy", "accessibility", "pdf", "pdf/ua", "remediation", "wcag", "eaa"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Typing :: Typed",
+]
+dependencies = [
+    "httpx>=0.27.0",
+    "pydantic>=2.6.0",
+    "typing_extensions>=4.10.0",
+    "anyio>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://a11yfy.com"
+Documentation = "https://a11yfy.com/docs"
+Repository = "https://github.com/a11yfy/sdk"
+
+[dependency-groups]
+dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/a11yfy"]
+# A generátor a csomagon belülre írja a saját unit-tesztjeit és a
+# markdown-dokumentumait — ezek ne kerüljenek a wheelbe.
+exclude = [
+    "src/a11yfy/tests",
+    "src/a11yfy/README.md",
+    "src/a11yfy/CONTRIBUTING.md",
+    "src/a11yfy/reference.md",
+]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/a11yfy", "README.md", "pyproject.toml"]
+exclude = ["src/a11yfy/tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

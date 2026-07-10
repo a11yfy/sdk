@@ -1,0 +1,50 @@
+{
+    "name": "@a11yfy/sdk",
+    "version": "0.1.0",
+    "description": "Official Node.js SDK for the a11yfy PDF accessibility remediation API",
+    "license": "MIT",
+    "homepage": "https://a11yfy.com",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/a11yfy/sdk.git",
+        "directory": "sdks/typescript"
+    },
+    "keywords": [
+        "a11yfy",
+        "accessibility",
+        "pdf",
+        "pdf/ua",
+        "remediation",
+        "wcag",
+        "eaa"
+    ],
+    "type": "module",
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.cjs"
+        }
+    },
+    "files": [
+        "dist"
+    ],
+    "engines": {
+        "node": ">=20"
+    },
+    "scripts": {
+        "build": "tsup",
+        "check": "tsc --noEmit",
+        "test": "node --import tsx --test tests/*.test.ts",
+        "prepublishOnly": "npm run check && npm run build && npm test"
+    },
+    "devDependencies": {
+        "@types/node": "^22.10.0",
+        "tsup": "^8.3.5",
+        "tsx": "^4.19.2",
+        "typescript": "^5.7.0"
+    }
+}

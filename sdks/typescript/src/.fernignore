@@ -1,0 +1,3 @@
+# Hand-written overlay files — a Fern-regeneráció nem írhatja felül őket.
+wrapper/
+.fernignore

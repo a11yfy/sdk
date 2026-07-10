@@ -1,0 +1,47 @@
+# a11yfy SDK generation — single source of truth: fern/openapi/openapi.json
+# (synced from the main repo's web/static/openapi.json; see scripts/sync-openapi.sh).
+#
+# Local generation: `fern generate --group local --local` (requires Docker).
+# Generated code lands INSIDE the package source dirs:
+#   sdks/python/src/a11yfy   (packaging: sdks/python/pyproject.toml — hand-written)
+#   sdks/typescript/src      (packaging: sdks/typescript/package.json — hand-written)
+# Hand-written overlay files (custom_client.py, webhooks.py, src/wrapper/) use
+# unique names so regeneration never collides with them; .fernignore documents
+# them for a future github-mode switch.
+api:
+  specs:
+    - openapi: ./openapi/openapi.json
+
+groups:
+  local:
+    generators:
+      - name: fernapi/fern-python-sdk
+        version: 5.17.1
+        output:
+          location: local-file-system
+          path: ../sdks/python/src/a11yfy
+        config:
+          package_name: a11yfy
+          client_class_name: BaseA11yfy
+          pydantic_config:
+            version: v2
+          additional_init_exports:
+            - from: custom_client
+              imports:
+                - A11yfy
+                - AsyncA11yfy
+                - JobFailedError
+                - RemediationTimeoutError
+            - from: webhooks
+              imports:
+                - Webhook
+                - WebhookEvent
+                - WebhookVerificationError
+
+      - name: fernapi/fern-typescript-sdk
+        version: 3.79.2
+        output:
+          location: local-file-system
+          path: ../sdks/typescript/src
+        config:
+          namespaceExport: A11yfy

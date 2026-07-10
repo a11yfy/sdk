@@ -1,0 +1,7 @@
+# Hand-written overlay files — a Fern-regeneráció nem írhatja felül őket.
+# (Lokális local-file-system módban a generátor amúgy sem törli az ismeretlen
+# fájlokat; ez a lista a jövőbeli github-mode váltáshoz is dokumentál.)
+custom_client.py
+webhooks.py
+py.typed
+.fernignore
