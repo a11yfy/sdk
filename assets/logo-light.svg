@@ -1,0 +1,13 @@
+<svg width="360" viewBox="70 60 520 155" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>a11yfy logó — vízszintes lockup, tagline nélkül, kisbetűs felirattal</title>
+<desc>Gradiens kitöltésű gyémánt ikon visszahajtott sarokkal, mellette az "a11yfy" felirat kisbetűkkel, a "11" korall kiemeléssel, egyéb szöveg nélkül.</desc>
+<defs>
+<linearGradient id="diamondGradH" x1="0%" y1="0%" x2="100%" y2="100%">
+<stop offset="0%" stop-color="#5DCAA5"/>
+<stop offset="100%" stop-color="#0F6E56"/>
+</linearGradient>
+</defs>
+<path d="M150 200 L80 130 L129 81 L171 81 L220 130 Z" fill="url(#diamondGradH)" stroke="#04342C" stroke-width="8" stroke-linejoin="round"/>
+<path d="M129 81 L171 81 L150 96 Z" fill="#D85A30" stroke="#04342C" stroke-width="4" stroke-linejoin="round"/>
+<text x="270" y="173" font-size="95" font-weight="600"><tspan fill="#04342C">a</tspan><tspan fill="#D85A30">11</tspan><tspan fill="#04342C">yfy</tspan></text>
+</svg>
