@@ -3,6 +3,7 @@ export * from "./BalanceResponse.js";
 export * from "./CertificateInfo.js";
 export * from "./CertificateListResponse.js";
 export * from "./JobAcceptedResponse.js";
+export * from "./JobAlreadyValidResponse.js";
 export * from "./JobListItem.js";
 export * from "./JobListResponse.js";
 export * from "./JobResultResponse.js";

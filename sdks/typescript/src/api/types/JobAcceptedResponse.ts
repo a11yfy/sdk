@@ -7,6 +7,8 @@ export interface JobAcceptedResponse {
     status: JobAcceptedResponse.Status;
     /** ISO 8601 creation timestamp */
     created_at: string;
+    /** Present only when this request's `webhook_url` created the webhook configuration for the API key for the first time. Store the `signing_secret` now — the API returns it only once (it also remains visible in the web UI under Settings → Organization → API keys). */
+    webhook?: (JobAcceptedResponse.Webhook | null) | undefined;
 }
 
 export namespace JobAcceptedResponse {
@@ -19,4 +21,12 @@ export namespace JobAcceptedResponse {
         Partial: "partial",
     } as const;
     export type Status = (typeof Status)[keyof typeof Status];
+
+    /**
+     * Present only when this request's `webhook_url` created the webhook configuration for the API key for the first time. Store the `signing_secret` now — the API returns it only once (it also remains visible in the web UI under Settings → Organization → API keys).
+     */
+    export interface Webhook {
+        /** Secret used to sign webhook deliveries (HMAC-SHA256, `X-A11yfy-Signature: ts;h1`) */
+        signing_secret: string;
+    }
 }

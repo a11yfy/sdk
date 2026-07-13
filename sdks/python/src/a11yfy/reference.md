@@ -89,7 +89,7 @@ client.jobs.list_jobs()
 </dl>
 </details>
 
-<details><summary><code>client.jobs.<a href="src/a11yfy/jobs/client.py">create_job</a>(...) -> JobAcceptedResponse</code></summary>
+<details><summary><code>client.jobs.<a href="src/a11yfy/jobs/client.py">create_job</a>(...) -> JobAlreadyValidResponse</code></summary>
 <dl>
 <dd>
 
@@ -145,7 +145,7 @@ client.jobs.create_job(
 <dl>
 <dd>
 
-**idempotency_key:** `typing.Optional[str]` — Deduplication key — reused within 24h returns the stored response
+**idempotency_key:** `str` — Required deduplication key (max 256 chars). Reusing the same key within 24 hours replays the stored successful response (200/202). Error responses (4xx/5xx) are never stored, so a failed request can be retried safely with the same key.
     
 </dd>
 </dl>

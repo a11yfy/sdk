@@ -5,7 +5,7 @@ import typing
 from .. import core
 from ..core.client_wrapper import AsyncClientWrapper, SyncClientWrapper
 from ..core.request_options import RequestOptions
-from ..types.job_accepted_response import JobAcceptedResponse
+from ..types.job_already_valid_response import JobAlreadyValidResponse
 from ..types.job_list_response import JobListResponse
 from ..types.job_result_response import JobResultResponse
 from ..types.job_status_response import JobStatusResponse
@@ -80,11 +80,11 @@ class JobsClient:
     def create_job(
         self,
         *,
-        idempotency_key: typing.Optional[str] = None,
+        idempotency_key: str,
         file: typing.Optional[core.File] = OMIT,
         webhook_url: typing.Optional[str] = OMIT,
         request_options: typing.Optional[RequestOptions] = None,
-    ) -> JobAcceptedResponse:
+    ) -> JobAlreadyValidResponse:
         """
         Single call that launches the full remediation pipeline:
         diagnostics → credit reservation → processing.
@@ -92,8 +92,8 @@ class JobsClient:
 
         Parameters
         ----------
-        idempotency_key : typing.Optional[str]
-            Deduplication key — reused within 24h returns the stored response
+        idempotency_key : str
+            Required deduplication key (max 256 chars). Reusing the same key within 24 hours replays the stored successful response (200/202). Error responses (4xx/5xx) are never stored, so a failed request can be retried safely with the same key.
 
         file : typing.Optional[core.File]
             See core.File for more documentation
@@ -106,8 +106,8 @@ class JobsClient:
 
         Returns
         -------
-        JobAcceptedResponse
-            Job accepted — processing started
+        JobAlreadyValidResponse
+            Document already compliant — no processing started, no credits consumed. The job is created in terminal `done` state; `GET /v1/jobs/{id}/result` returns `treatment: "noop"`, `already_valid: true` and `output_url: null`.
 
         Examples
         --------
@@ -262,11 +262,11 @@ class AsyncJobsClient:
     async def create_job(
         self,
         *,
-        idempotency_key: typing.Optional[str] = None,
+        idempotency_key: str,
         file: typing.Optional[core.File] = OMIT,
         webhook_url: typing.Optional[str] = OMIT,
         request_options: typing.Optional[RequestOptions] = None,
-    ) -> JobAcceptedResponse:
+    ) -> JobAlreadyValidResponse:
         """
         Single call that launches the full remediation pipeline:
         diagnostics → credit reservation → processing.
@@ -274,8 +274,8 @@ class AsyncJobsClient:
 
         Parameters
         ----------
-        idempotency_key : typing.Optional[str]
-            Deduplication key — reused within 24h returns the stored response
+        idempotency_key : str
+            Required deduplication key (max 256 chars). Reusing the same key within 24 hours replays the stored successful response (200/202). Error responses (4xx/5xx) are never stored, so a failed request can be retried safely with the same key.
 
         file : typing.Optional[core.File]
             See core.File for more documentation
@@ -288,8 +288,8 @@ class AsyncJobsClient:
 
         Returns
         -------
-        JobAcceptedResponse
-            Job accepted — processing started
+        JobAlreadyValidResponse
+            Document already compliant — no processing started, no credits consumed. The job is created in terminal `done` state; `GET /v1/jobs/{id}/result` returns `treatment: "noop"`, `already_valid: true` and `output_url: null`.
 
         Examples
         --------

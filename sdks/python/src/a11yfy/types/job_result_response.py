@@ -32,6 +32,11 @@ class JobResultResponse(UniversalBaseModel):
     Remediation type applied: 'technical' (lower-cost tag-level repair), 'full' (complete rebuild), or 'noop' (document was already compliant).
     """
 
+    already_valid: typing.Optional[bool] = pydantic.Field(default=None)
+    """
+    Present and true only when the uploaded PDF was already PDF/UA compliant (treatment 'noop'): no credits were consumed and output_url is null.
+    """
+
     output_url: typing.Optional[str] = pydantic.Field(default=None)
     """
     Presigned URL to the remediated PDF (may expire)

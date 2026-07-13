@@ -112,9 +112,16 @@ export class JobsClient {
      * @param {A11yfy.CreateJobRequest} request
      * @param {JobsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
+     * @throws {@link A11yfy.BadRequestError}
      * @throws {@link A11yfy.UnauthorizedError}
      * @throws {@link A11yfy.PaymentRequiredError}
+     * @throws {@link A11yfy.NotFoundError}
+     * @throws {@link A11yfy.ConflictError}
+     * @throws {@link A11yfy.ContentTooLargeError}
+     * @throws {@link A11yfy.UnprocessableEntityError}
      * @throws {@link A11yfy.TooManyRequestsError}
+     * @throws {@link A11yfy.BadGatewayError}
+     * @throws {@link A11yfy.ServiceUnavailableError}
      *
      * @example
      *     import { createReadStream } from "fs";
@@ -125,14 +132,14 @@ export class JobsClient {
     public createJob(
         request: A11yfy.CreateJobRequest,
         requestOptions?: JobsClient.RequestOptions,
-    ): core.HttpResponsePromise<A11yfy.JobAcceptedResponse> {
+    ): core.HttpResponsePromise<A11yfy.JobAlreadyValidResponse> {
         return core.HttpResponsePromise.fromPromise(this.__createJob(request, requestOptions));
     }
 
     private async __createJob(
         request: A11yfy.CreateJobRequest,
         requestOptions?: JobsClient.RequestOptions,
-    ): Promise<core.WithRawResponse<A11yfy.JobAcceptedResponse>> {
+    ): Promise<core.WithRawResponse<A11yfy.JobAlreadyValidResponse>> {
         const _body = await core.newFormData();
         if (request.file != null) {
             await _body.appendFile("file", request.file);
@@ -170,11 +177,13 @@ export class JobsClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body as A11yfy.JobAcceptedResponse, rawResponse: _response.rawResponse };
+            return { data: _response.body as A11yfy.JobAlreadyValidResponse, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
             switch (_response.error.statusCode) {
+                case 400:
+                    throw new A11yfy.BadRequestError(_response.error.body as A11yfy.ApiError, _response.rawResponse);
                 case 401:
                     throw new A11yfy.UnauthorizedError(_response.error.body as A11yfy.ApiError, _response.rawResponse);
                 case 402:
@@ -182,8 +191,29 @@ export class JobsClient {
                         _response.error.body as A11yfy.ApiError,
                         _response.rawResponse,
                     );
+                case 404:
+                    throw new A11yfy.NotFoundError(_response.error.body as A11yfy.ApiError, _response.rawResponse);
+                case 409:
+                    throw new A11yfy.ConflictError(_response.error.body as A11yfy.ApiError, _response.rawResponse);
+                case 413:
+                    throw new A11yfy.ContentTooLargeError(
+                        _response.error.body as A11yfy.ApiError,
+                        _response.rawResponse,
+                    );
+                case 422:
+                    throw new A11yfy.UnprocessableEntityError(
+                        _response.error.body as A11yfy.ApiError,
+                        _response.rawResponse,
+                    );
                 case 429:
                     throw new A11yfy.TooManyRequestsError(
+                        _response.error.body as A11yfy.ApiError,
+                        _response.rawResponse,
+                    );
+                case 502:
+                    throw new A11yfy.BadGatewayError(_response.error.body as A11yfy.ApiError, _response.rawResponse);
+                case 503:
+                    throw new A11yfy.ServiceUnavailableError(
                         _response.error.body as A11yfy.ApiError,
                         _response.rawResponse,
                     );

@@ -9,6 +9,8 @@ export interface JobResultResponse {
     credits_used: number;
     /** Remediation type applied: 'technical' (lower-cost tag-level repair), 'full' (complete rebuild), or 'noop' (document was already compliant). */
     treatment?: JobResultResponse.Treatment | undefined;
+    /** Present and true only when the uploaded PDF was already PDF/UA compliant (treatment 'noop'): no credits were consumed and output_url is null. */
+    already_valid?: boolean | undefined;
     /** Presigned URL to the remediated PDF (may expire) */
     output_url: string | null;
     /** Pre-remediation diagnostic summary */

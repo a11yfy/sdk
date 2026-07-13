@@ -9,8 +9,8 @@ import type * as core from "../../../../../core/index.js";
  *     }
  */
 export interface CreateJobRequest {
-    /** Deduplication key — reused within 24h returns the stored response */
-    "Idempotency-Key"?: string;
+    /** Required deduplication key (max 256 chars). Reusing the same key within 24 hours replays the stored successful response (200/202). Error responses (4xx/5xx) are never stored, so a failed request can be retried safely with the same key. */
+    "Idempotency-Key": string;
     /** PDF file to remediate */
     file?: core.file.Uploadable | undefined;
     /** Optional callback URL for HMAC-signed completion webhook */

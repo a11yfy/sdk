@@ -6,6 +6,7 @@ import typing
 import pydantic
 from ..core.pydantic_utilities import UniversalBaseModel
 from .job_accepted_response_status import JobAcceptedResponseStatus
+from .job_accepted_response_webhook import JobAcceptedResponseWebhook
 
 
 class JobAcceptedResponse(UniversalBaseModel):
@@ -22,6 +23,11 @@ class JobAcceptedResponse(UniversalBaseModel):
     created_at: dt.datetime = pydantic.Field()
     """
     ISO 8601 creation timestamp
+    """
+
+    webhook: typing.Optional[JobAcceptedResponseWebhook] = pydantic.Field(default=None)
+    """
+    Present only when this request's `webhook_url` created the webhook configuration for the API key for the first time. Store the `signing_secret` now — the API returns it only once (it also remains visible in the web UI under Settings → Organization → API keys).
     """
 
     model_config: typing.ClassVar[pydantic.ConfigDict] = pydantic.ConfigDict(extra="allow", frozen=True)

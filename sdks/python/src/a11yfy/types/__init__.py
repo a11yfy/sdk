@@ -13,6 +13,9 @@ if typing.TYPE_CHECKING:
     from .certificate_list_response import CertificateListResponse
     from .job_accepted_response import JobAcceptedResponse
     from .job_accepted_response_status import JobAcceptedResponseStatus
+    from .job_accepted_response_webhook import JobAcceptedResponseWebhook
+    from .job_already_valid_response import JobAlreadyValidResponse
+    from .job_already_valid_response_status import JobAlreadyValidResponseStatus
     from .job_list_item import JobListItem
     from .job_list_item_status import JobListItemStatus
     from .job_list_item_treatment import JobListItemTreatment
@@ -37,6 +40,9 @@ _dynamic_imports: typing.Dict[str, str] = {
     "CertificateListResponse": ".certificate_list_response",
     "JobAcceptedResponse": ".job_accepted_response",
     "JobAcceptedResponseStatus": ".job_accepted_response_status",
+    "JobAcceptedResponseWebhook": ".job_accepted_response_webhook",
+    "JobAlreadyValidResponse": ".job_already_valid_response",
+    "JobAlreadyValidResponseStatus": ".job_already_valid_response_status",
     "JobListItem": ".job_list_item",
     "JobListItemStatus": ".job_list_item_status",
     "JobListItemTreatment": ".job_list_item_treatment",
@@ -85,6 +91,9 @@ __all__ = [
     "CertificateListResponse",
     "JobAcceptedResponse",
     "JobAcceptedResponseStatus",
+    "JobAcceptedResponseWebhook",
+    "JobAlreadyValidResponse",
+    "JobAlreadyValidResponseStatus",
     "JobListItem",
     "JobListItemStatus",
     "JobListItemTreatment",

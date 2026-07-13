@@ -11,13 +11,18 @@ from ..core.jsonable_encoder import encode_path_param
 from ..core.parse_error import ParsingError
 from ..core.pydantic_utilities import parse_obj_as
 from ..core.request_options import RequestOptions
+from ..errors.bad_gateway_error import BadGatewayError
 from ..errors.bad_request_error import BadRequestError
+from ..errors.conflict_error import ConflictError
+from ..errors.content_too_large_error import ContentTooLargeError
 from ..errors.not_found_error import NotFoundError
 from ..errors.payment_required_error import PaymentRequiredError
+from ..errors.service_unavailable_error import ServiceUnavailableError
 from ..errors.too_many_requests_error import TooManyRequestsError
 from ..errors.unauthorized_error import UnauthorizedError
+from ..errors.unprocessable_entity_error import UnprocessableEntityError
 from ..types.api_error import ApiError as types_api_error_ApiError
-from ..types.job_accepted_response import JobAcceptedResponse
+from ..types.job_already_valid_response import JobAlreadyValidResponse
 from ..types.job_list_response import JobListResponse
 from ..types.job_result_response import JobResultResponse
 from ..types.job_status_response import JobStatusResponse
@@ -122,11 +127,11 @@ class RawJobsClient:
     def create_job(
         self,
         *,
-        idempotency_key: typing.Optional[str] = None,
+        idempotency_key: str,
         file: typing.Optional[core.File] = OMIT,
         webhook_url: typing.Optional[str] = OMIT,
         request_options: typing.Optional[RequestOptions] = None,
-    ) -> HttpResponse[JobAcceptedResponse]:
+    ) -> HttpResponse[JobAlreadyValidResponse]:
         """
         Single call that launches the full remediation pipeline:
         diagnostics → credit reservation → processing.
@@ -134,8 +139,8 @@ class RawJobsClient:
 
         Parameters
         ----------
-        idempotency_key : typing.Optional[str]
-            Deduplication key — reused within 24h returns the stored response
+        idempotency_key : str
+            Required deduplication key (max 256 chars). Reusing the same key within 24 hours replays the stored successful response (200/202). Error responses (4xx/5xx) are never stored, so a failed request can be retried safely with the same key.
 
         file : typing.Optional[core.File]
             See core.File for more documentation
@@ -148,8 +153,8 @@ class RawJobsClient:
 
         Returns
         -------
-        HttpResponse[JobAcceptedResponse]
-            Job accepted — processing started
+        HttpResponse[JobAlreadyValidResponse]
+            Document already compliant — no processing started, no credits consumed. The job is created in terminal `done` state; `GET /v1/jobs/{id}/result` returns `treatment: "noop"`, `already_valid: true` and `output_url: null`.
         """
         _response = self._client_wrapper.httpx_client.request(
             "v1/jobs",
@@ -170,13 +175,24 @@ class RawJobsClient:
         try:
             if 200 <= _response.status_code < 300:
                 _data = typing.cast(
-                    JobAcceptedResponse,
+                    JobAlreadyValidResponse,
                     parse_obj_as(
-                        type_=JobAcceptedResponse,  # type: ignore
+                        type_=JobAlreadyValidResponse,  # type: ignore
                         object_=_response.json(),
                     ),
                 )
                 return HttpResponse(response=_response, data=_data)
+            if _response.status_code == 400:
+                raise BadRequestError(
+                    headers=dict(_response.headers),
+                    body=typing.cast(
+                        types_api_error_ApiError,
+                        parse_obj_as(
+                            type_=types_api_error_ApiError,  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    ),
+                )
             if _response.status_code == 401:
                 raise UnauthorizedError(
                     headers=dict(_response.headers),
@@ -199,8 +215,74 @@ class RawJobsClient:
                         ),
                     ),
                 )
+            if _response.status_code == 404:
+                raise NotFoundError(
+                    headers=dict(_response.headers),
+                    body=typing.cast(
+                        types_api_error_ApiError,
+                        parse_obj_as(
+                            type_=types_api_error_ApiError,  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    ),
+                )
+            if _response.status_code == 409:
+                raise ConflictError(
+                    headers=dict(_response.headers),
+                    body=typing.cast(
+                        types_api_error_ApiError,
+                        parse_obj_as(
+                            type_=types_api_error_ApiError,  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    ),
+                )
+            if _response.status_code == 413:
+                raise ContentTooLargeError(
+                    headers=dict(_response.headers),
+                    body=typing.cast(
+                        types_api_error_ApiError,
+                        parse_obj_as(
+                            type_=types_api_error_ApiError,  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    ),
+                )
+            if _response.status_code == 422:
+                raise UnprocessableEntityError(
+                    headers=dict(_response.headers),
+                    body=typing.cast(
+                        types_api_error_ApiError,
+                        parse_obj_as(
+                            type_=types_api_error_ApiError,  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    ),
+                )
             if _response.status_code == 429:
                 raise TooManyRequestsError(
+                    headers=dict(_response.headers),
+                    body=typing.cast(
+                        types_api_error_ApiError,
+                        parse_obj_as(
+                            type_=types_api_error_ApiError,  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    ),
+                )
+            if _response.status_code == 502:
+                raise BadGatewayError(
+                    headers=dict(_response.headers),
+                    body=typing.cast(
+                        types_api_error_ApiError,
+                        parse_obj_as(
+                            type_=types_api_error_ApiError,  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    ),
+                )
+            if _response.status_code == 503:
+                raise ServiceUnavailableError(
                     headers=dict(_response.headers),
                     body=typing.cast(
                         types_api_error_ApiError,
@@ -458,11 +540,11 @@ class AsyncRawJobsClient:
     async def create_job(
         self,
         *,
-        idempotency_key: typing.Optional[str] = None,
+        idempotency_key: str,
         file: typing.Optional[core.File] = OMIT,
         webhook_url: typing.Optional[str] = OMIT,
         request_options: typing.Optional[RequestOptions] = None,
-    ) -> AsyncHttpResponse[JobAcceptedResponse]:
+    ) -> AsyncHttpResponse[JobAlreadyValidResponse]:
         """
         Single call that launches the full remediation pipeline:
         diagnostics → credit reservation → processing.
@@ -470,8 +552,8 @@ class AsyncRawJobsClient:
 
         Parameters
         ----------
-        idempotency_key : typing.Optional[str]
-            Deduplication key — reused within 24h returns the stored response
+        idempotency_key : str
+            Required deduplication key (max 256 chars). Reusing the same key within 24 hours replays the stored successful response (200/202). Error responses (4xx/5xx) are never stored, so a failed request can be retried safely with the same key.
 
         file : typing.Optional[core.File]
             See core.File for more documentation
@@ -484,8 +566,8 @@ class AsyncRawJobsClient:
 
         Returns
         -------
-        AsyncHttpResponse[JobAcceptedResponse]
-            Job accepted — processing started
+        AsyncHttpResponse[JobAlreadyValidResponse]
+            Document already compliant — no processing started, no credits consumed. The job is created in terminal `done` state; `GET /v1/jobs/{id}/result` returns `treatment: "noop"`, `already_valid: true` and `output_url: null`.
         """
         _response = await self._client_wrapper.httpx_client.request(
             "v1/jobs",
@@ -506,13 +588,24 @@ class AsyncRawJobsClient:
         try:
             if 200 <= _response.status_code < 300:
                 _data = typing.cast(
-                    JobAcceptedResponse,
+                    JobAlreadyValidResponse,
                     parse_obj_as(
-                        type_=JobAcceptedResponse,  # type: ignore
+                        type_=JobAlreadyValidResponse,  # type: ignore
                         object_=_response.json(),
                     ),
                 )
                 return AsyncHttpResponse(response=_response, data=_data)
+            if _response.status_code == 400:
+                raise BadRequestError(
+                    headers=dict(_response.headers),
+                    body=typing.cast(
+                        types_api_error_ApiError,
+                        parse_obj_as(
+                            type_=types_api_error_ApiError,  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    ),
+                )
             if _response.status_code == 401:
                 raise UnauthorizedError(
                     headers=dict(_response.headers),
@@ -535,8 +628,74 @@ class AsyncRawJobsClient:
                         ),
                     ),
                 )
+            if _response.status_code == 404:
+                raise NotFoundError(
+                    headers=dict(_response.headers),
+                    body=typing.cast(
+                        types_api_error_ApiError,
+                        parse_obj_as(
+                            type_=types_api_error_ApiError,  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    ),
+                )
+            if _response.status_code == 409:
+                raise ConflictError(
+                    headers=dict(_response.headers),
+                    body=typing.cast(
+                        types_api_error_ApiError,
+                        parse_obj_as(
+                            type_=types_api_error_ApiError,  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    ),
+                )
+            if _response.status_code == 413:
+                raise ContentTooLargeError(
+                    headers=dict(_response.headers),
+                    body=typing.cast(
+                        types_api_error_ApiError,
+                        parse_obj_as(
+                            type_=types_api_error_ApiError,  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    ),
+                )
+            if _response.status_code == 422:
+                raise UnprocessableEntityError(
+                    headers=dict(_response.headers),
+                    body=typing.cast(
+                        types_api_error_ApiError,
+                        parse_obj_as(
+                            type_=types_api_error_ApiError,  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    ),
+                )
             if _response.status_code == 429:
                 raise TooManyRequestsError(
+                    headers=dict(_response.headers),
+                    body=typing.cast(
+                        types_api_error_ApiError,
+                        parse_obj_as(
+                            type_=types_api_error_ApiError,  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    ),
+                )
+            if _response.status_code == 502:
+                raise BadGatewayError(
+                    headers=dict(_response.headers),
+                    body=typing.cast(
+                        types_api_error_ApiError,
+                        parse_obj_as(
+                            type_=types_api_error_ApiError,  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    ),
+                )
+            if _response.status_code == 503:
+                raise ServiceUnavailableError(
                     headers=dict(_response.headers),
                     body=typing.cast(
                         types_api_error_ApiError,
