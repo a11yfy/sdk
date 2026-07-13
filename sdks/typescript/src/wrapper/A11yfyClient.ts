@@ -7,7 +7,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { A11yfyClient as FernClient } from "../Client.js";
 import type * as A11yfy from "../api/index.js";
@@ -92,7 +92,8 @@ function prepareFile(file: FileInput): { upload: core.file.Uploadable; sha256?: 
             sha256,
         };
     }
-    // Uploadable (File/Blob/stream) — pass through, no hash (supply idempotencyKey for dedup)
+    // Uploadable (File/Blob/stream) — pass through, no hash (a random UUID
+    // Idempotency-Key is generated; supply idempotencyKey for dedup)
     return { upload: file };
 }
 
@@ -137,10 +138,12 @@ export class A11yfyClient extends FernClient {
         } = options;
 
         const { upload, sha256 } = prepareFile(file);
+        // Streams have no hash — fall back to a random UUID so the required
+        // Idempotency-Key header is always present (server rejects without it).
         const job = await this.jobs.createJob({
             file: upload,
             webhook_url: webhookUrl,
-            "Idempotency-Key": idempotencyKey ?? sha256,
+            "Idempotency-Key": idempotencyKey ?? sha256 ?? randomUUID(),
         });
 
         const started = Date.now();

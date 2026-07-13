@@ -124,6 +124,41 @@
           "message"
         ]
       },
+      "JobAlreadyValidResponse": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique job identifier"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done"
+            ],
+            "description": "Always 'done' — the job is terminal immediately"
+          },
+          "already_valid": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "description": "The uploaded PDF was already PDF/UA compliant; nothing was modified and no credits were consumed"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 creation timestamp"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "already_valid",
+          "created_at"
+        ]
+      },
       "JobAcceptedResponse": {
         "type": "object",
         "properties": {
@@ -148,6 +183,22 @@
             "type": "string",
             "format": "date-time",
             "description": "ISO 8601 creation timestamp"
+          },
+          "webhook": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "signing_secret": {
+                "type": "string",
+                "description": "Secret used to sign webhook deliveries (HMAC-SHA256, `X-A11yfy-Signature: ts;h1`)"
+              }
+            },
+            "required": [
+              "signing_secret"
+            ],
+            "description": "Present only when this request's `webhook_url` created the webhook configuration for the API key for the first time. Store the `signing_secret` now — the API returns it only once (it also remains visible in the web UI under Settings → Organization → API keys)."
           }
         },
         "required": [
@@ -319,6 +370,10 @@
               "noop"
             ],
             "description": "Remediation type applied: 'technical' (lower-cost tag-level repair), 'full' (complete rebuild), or 'noop' (document was already compliant)."
+          },
+          "already_valid": {
+            "type": "boolean",
+            "description": "Present and true only when the uploaded PDF was already PDF/UA compliant (treatment 'noop'): no credits were consumed and output_url is null."
           },
           "output_url": {
             "type": [
@@ -563,18 +618,18 @@
             "schema": {
               "type": "string",
               "maxLength": 256,
-              "description": "Deduplication key — reused within 24h returns the stored response",
+              "description": "Required deduplication key (max 256 chars). Reusing the same key within 24 hours replays the stored successful response (200/202). Error responses (4xx/5xx) are never stored, so a failed request can be retried safely with the same key.",
               "example": "550e8400-e29b-41d4-a716-446655440000"
             },
-            "required": false,
-            "description": "Deduplication key — reused within 24h returns the stored response",
+            "required": true,
+            "description": "Required deduplication key (max 256 chars). Reusing the same key within 24 hours replays the stored successful response (200/202). Error responses (4xx/5xx) are never stored, so a failed request can be retried safely with the same key.",
             "name": "Idempotency-Key",
             "in": "header"
           }
         ],
         "requestBody": {
           "required": true,
-          "description": "PDF file (multipart/form-data).",
+          "description": "PDF file (multipart/form-data with a required `file` field). Alternatively the runtime also accepts a JSON body referencing a pre-uploaded R2 object (`r2_ref` — must be under your organization's prefix `v1/{org_id}/...`); this JSON variant is intentionally undocumented as a content type so SDK generators bind to the multipart upload path.",
           "content": {
             "multipart/form-data": {
               "schema": {
@@ -597,12 +652,32 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "Document already compliant — no processing started, no credits consumed. The job is created in terminal `done` state; `GET /v1/jobs/{id}/result` returns `treatment: \"noop\"`, `already_valid: true` and `output_url: null`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAlreadyValidResponse"
+                }
+              }
+            }
+          },
           "202": {
-            "description": "Job accepted — processing started",
+            "description": "Job accepted — processing started. When the request's `webhook_url` creates the webhook configuration for this API key for the first time, the response includes `webhook.signing_secret` (returned only once).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JobAcceptedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid Idempotency-Key header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -613,8 +688,68 @@
           "402": {
             "$ref": "#/components/responses/InsufficientCredits"
           },
+          "404": {
+            "description": "The supplied `r2_ref` was not found in your organization prefix",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency conflict — another request with the same Idempotency-Key is currently in flight; retry after it finishes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "File exceeds the 300 MB size limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable request — missing `file`/`r2_ref` field or unparseable body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
           "429": {
             "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "description": "Upstream diagnostic analysis failed. Not stored under the Idempotency-Key — retrying with the same key is safe.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The service is temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       },

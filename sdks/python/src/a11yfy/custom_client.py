@@ -14,6 +14,7 @@ import hashlib
 import os
 import time
 import typing
+import uuid
 
 from .client import AsyncBaseA11yfy, BaseA11yfy
 from .core.request_options import RequestOptions
@@ -81,8 +82,9 @@ def _prepare_file(file: FileInput) -> typing.Tuple[typing.Any, typing.Optional[s
 
     Paths and bytes are read fully so the SHA-256 can double as an
     Idempotency-Key (same file → same job within 24h, no double billing).
-    Streams are passed through untouched (no hash — supply idempotency_key
-    explicitly if you need dedup for streams).
+    Streams are passed through untouched (no hash — a random UUID key is
+    generated instead; supply idempotency_key explicitly if you need
+    dedup for streams).
     """
     if isinstance(file, (str, os.PathLike)):
         path = os.fspath(file)
@@ -134,7 +136,9 @@ class A11yfy(BaseA11yfy):
         when `timeout` elapses before a terminal state.
         """
         file_arg, digest = _prepare_file(file)
-        key = idempotency_key or digest
+        # Streams have no hash — fall back to a random UUID so the required
+        # Idempotency-Key header is always present (server rejects without it).
+        key = idempotency_key or digest or str(uuid.uuid4())
         job = self.jobs.create_job(
             file=file_arg,
             webhook_url=webhook_url,
@@ -184,7 +188,9 @@ class AsyncA11yfy(AsyncBaseA11yfy):
     ) -> JobResultResponse:
         """Async variant of A11yfy.remediate()."""
         file_arg, digest = _prepare_file(file)
-        key = idempotency_key or digest
+        # Streams have no hash — fall back to a random UUID so the required
+        # Idempotency-Key header is always present (server rejects without it).
+        key = idempotency_key or digest or str(uuid.uuid4())
         job = await self.jobs.create_job(
             file=file_arg,
             webhook_url=webhook_url,
