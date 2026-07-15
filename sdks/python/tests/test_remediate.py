@@ -1,11 +1,14 @@
 """remediate() flow-tesztek stubolt jobs-klienssel (nincs hálózat)."""
 
-import types
+import io
+import json
 
 import pytest
 
 from a11yfy import A11yfy, JobFailedError, RemediationTimeoutError
 from a11yfy.custom_client import _prepare_file
+from a11yfy.types.job_accepted_response import JobAcceptedResponse
+from a11yfy.types.job_already_valid_response import JobAlreadyValidResponse
 
 
 class _Obj:
@@ -13,17 +16,52 @@ class _Obj:
         self.__dict__.update(kw)
 
 
+class _FakeHttpxResponse:
+    def __init__(self, status_code, payload):
+        self.status_code = status_code
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class _FakeRawJobs:
+    """A with_raw_response felület stubja (audit 6-SDK-P0.2 kontraktus)."""
+
+    def __init__(self, owner, status_code, payload):
+        self._owner = owner
+        self._status_code = status_code
+        self._payload = payload
+
+    def create_job(self, **kwargs):
+        self._owner.created_with = kwargs
+        return _Obj(
+            response=_FakeHttpxResponse(self._status_code, self._payload),
+            data=_Obj(job_id=self._payload["job_id"], status="pending"),
+        )
+
+
+#: 202-es szerver-payload — a webhook.signing_secret CSAK itt jön.
+_ACCEPTED_PAYLOAD = {
+    "job_id": "job-1",
+    "status": "pending",
+    "created_at": "2026-07-10T00:00:00Z",
+    "webhook": {"url": "https://example.com/hook", "signing_secret": "whsec_abc123"},
+}
+
+
 class StubJobs:
     """create→(processing…)→terminal szekvenciát játszik le."""
 
-    def __init__(self, statuses, result_status="done"):
+    def __init__(self, statuses, result_status="done", create_status_code=202):
         self.statuses = list(statuses)
         self.result_status = result_status
         self.created_with = None
+        self._create_status_code = create_status_code
 
-    def create_job(self, **kwargs):
-        self.created_with = kwargs
-        return _Obj(job_id="job-1", status="pending", created_at="2026-07-10T00:00:00Z")
+    @property
+    def with_raw_response(self):
+        return _FakeRawJobs(self, self._create_status_code, dict(_ACCEPTED_PAYLOAD))
 
     def get_job(self, job_id, **kwargs):
         status = self.statuses.pop(0) if self.statuses else "done"
@@ -79,21 +117,46 @@ def test_explicit_idempotency_key_wins():
     assert stub.created_with["idempotency_key"] == "my-key"
 
 
+def test_create_job_202_returns_accepted_with_signing_secret():
+    """6-SDK-P0.2 regresszió: a 202 JobAcceptedResponse-t ad, a
+    webhook.signing_secret NEM veszhet el."""
+    stub = StubJobs(["done"], create_status_code=202)
+    client = make_client(stub)
+    job = client.create_job(file=b"%PDF fake", idempotency_key="k")
+    assert isinstance(job, JobAcceptedResponse)
+    assert job.webhook is not None
+    assert job.webhook.signing_secret == "whsec_abc123"
+
+
+def test_create_job_200_returns_already_valid_data():
+    """200 (already_valid): a generált parszolás (data) jön vissza."""
+    stub = StubJobs(["done"], create_status_code=200)
+    client = make_client(stub)
+    job = client.create_job(file=b"%PDF fake", idempotency_key="k")
+    # a stub .data-ja _Obj — a lényeg: NEM a 202-es ágon parszolódott
+    assert not isinstance(job, JobAcceptedResponse)
+    assert job.job_id == "job-1"
+
+
 def test_prepare_file_variants(tmp_path):
-    # path
+    # path (6-SDK-P0.1): chunkolt SHA + nyitott fájl-handle (streaming upload)
     p = tmp_path / "doc.pdf"
     p.write_bytes(b"%PDF data")
-    (name, data), digest = _prepare_file(str(p))
-    assert name == "doc.pdf" and data == b"%PDF data" and len(digest) == 64
-    # bytes
-    (_, data2), digest2 = _prepare_file(b"%PDF data")
-    assert digest2 == digest
+    (name, fh), digest, closer = _prepare_file(str(p))
+    assert name == "doc.pdf" and len(digest) == 64
+    assert hasattr(fh, "read") and fh.read() == b"%PDF data"
+    closer()
+    assert fh.closed
+    # bytes — változatlan, azonos digest
+    (_, data2), digest2, closer2 = _prepare_file(b"%PDF data")
+    assert data2 == b"%PDF data" and digest2 == digest
+    closer2()  # no-op
     # stream: nincs hash
-    import io
-
     stream = io.BytesIO(b"x")
-    passthrough, digest3 = _prepare_file(stream)
+    passthrough, digest3, closer3 = _prepare_file(stream)
     assert passthrough is stream and digest3 is None
+    closer3()
+    assert not stream.closed
 
 
 def test_env_var_token(monkeypatch):

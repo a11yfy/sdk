@@ -17,11 +17,31 @@ import typing
 import uuid
 
 from .client import AsyncBaseA11yfy, BaseA11yfy
+from .core.pydantic_utilities import parse_obj_as
 from .core.request_options import RequestOptions
+from .types.job_accepted_response import JobAcceptedResponse
+from .types.job_already_valid_response import JobAlreadyValidResponse
 from .types.job_result_response import JobResultResponse
 
 if typing.TYPE_CHECKING:
     from . import core
+
+#: create_job valódi válasz-uniója (audit 6-SDK-P0.2): a szerver 202-re
+#: JobAcceptedResponse-t ad (benne az EGYSZER kiadott webhook.signing_secret),
+#: 200-ra JobAlreadyValidResponse-t. A generált raw_client minden 2xx-et
+#: AlreadyValid-ként parszolt — a signing_secret elveszett.
+JobCreateResponse = typing.Union[JobAcceptedResponse, JobAlreadyValidResponse]
+
+
+def _parse_create_job(http_response: typing.Any) -> JobCreateResponse:
+    """Státuszkód-helyes 202/200 parszolás a with_raw_response eredményéből."""
+    raw = http_response.response  # httpx.Response
+    if raw.status_code == 202:
+        return typing.cast(
+            JobAcceptedResponse,
+            parse_obj_as(type_=JobAcceptedResponse, object_=raw.json()),  # type: ignore[arg-type]
+        )
+    return http_response.data
 
 #: Terminal job states — polling stops on any of these.
 _TERMINAL_STATUSES = frozenset({"done", "failed", "partial"})
@@ -76,28 +96,47 @@ class JobFailedError(Exception):
 
 FileInput = typing.Union[str, os.PathLike, bytes, typing.IO[bytes], typing.Tuple[str, bytes]]
 
+#: Chunk-méret a streaming SHA-256-hoz (1 MiB).
+_SHA_CHUNK = 1024 * 1024
 
-def _prepare_file(file: FileInput) -> typing.Tuple[typing.Any, typing.Optional[str]]:
-    """Normalize the input to a (core.File, sha256|None) pair.
 
-    Paths and bytes are read fully so the SHA-256 can double as an
-    Idempotency-Key (same file → same job within 24h, no double billing).
+def _sha256_file(path: str) -> str:
+    """Chunkolt SHA-256 — a fájl SOSEM kerül egyben memóriába (6-SDK-P0.1)."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(_SHA_CHUNK), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _prepare_file(
+    file: FileInput,
+) -> typing.Tuple[typing.Any, typing.Optional[str], typing.Callable[[], None]]:
+    """Normalize the input to a (core.File, sha256|None, closer) triple.
+
+    Path input (audit 6-SDK-P0.1): a SHA-256 chunkolva számolódik, és a
+    multipart-feltöltés nyitott fájl-handle-ből streamel — egy 300 MB-os PDF
+    sem kerül egyben memóriába. (Az httpx a seekable fájlt render előtt
+    seek(0)-val visszatekeri, így az HTTP-retry is biztonságos.) A handle-t
+    a visszaadott `closer` zárja — a hívó felelőssége (try/finally).
+
+    Bytes/tuple input: változatlan (a hívó már memóriában tartja).
     Streams are passed through untouched (no hash — a random UUID key is
     generated instead; supply idempotency_key explicitly if you need
     dedup for streams).
     """
     if isinstance(file, (str, os.PathLike)):
         path = os.fspath(file)
-        with open(path, "rb") as fh:
-            data = fh.read()
-        return (os.path.basename(path), data), hashlib.sha256(data).hexdigest()
+        digest = _sha256_file(path)
+        fh = open(path, "rb")  # noqa: SIM115 — a closer zárja (streaming upload)
+        return (os.path.basename(path), fh), digest, fh.close
     if isinstance(file, bytes):
-        return ("document.pdf", file), hashlib.sha256(file).hexdigest()
+        return ("document.pdf", file), hashlib.sha256(file).hexdigest(), lambda: None
     if isinstance(file, tuple):
         name, data = file
-        return (name, data), hashlib.sha256(data).hexdigest()
+        return (name, data), hashlib.sha256(data).hexdigest(), lambda: None
     # file-like stream — pass through
-    return file, None
+    return file, None, lambda: None
 
 
 class A11yfy(BaseA11yfy):
@@ -119,6 +158,30 @@ class A11yfy(BaseA11yfy):
                 kwargs["token"] = env_token
         super().__init__(*args, **kwargs)
 
+    def create_job(
+        self,
+        *,
+        file: typing.Any,
+        webhook_url: typing.Optional[str] = None,
+        idempotency_key: str,
+        request_options: typing.Optional[RequestOptions] = None,
+    ) -> JobCreateResponse:
+        """Típushelyes create_job (audit 6-SDK-P0.2).
+
+        A 202-es válasz JobAcceptedResponse-ként jön vissza — benne a
+        `webhook.signing_secret`, amit a szerver CSAK EGYSZER ad ki. A
+        generált `jobs.create_job` minden 2xx-et JobAlreadyValidResponse-ként
+        parszolt, így a secret némán elveszett. Webhookos integrációnál
+        EZT a metódust használd a `jobs.create_job` helyett.
+        """
+        response = self.jobs.with_raw_response.create_job(
+            file=file,
+            webhook_url=webhook_url,
+            idempotency_key=idempotency_key,
+            request_options=request_options,
+        )
+        return _parse_create_job(response)
+
     def remediate(
         self,
         file: FileInput,
@@ -135,16 +198,19 @@ class A11yfy(BaseA11yfy):
         Raises JobFailedError when the job fails, RemediationTimeoutError
         when `timeout` elapses before a terminal state.
         """
-        file_arg, digest = _prepare_file(file)
+        file_arg, digest, close_file = _prepare_file(file)
         # Streams have no hash — fall back to a random UUID so the required
         # Idempotency-Key header is always present (server rejects without it).
         key = idempotency_key or digest or str(uuid.uuid4())
-        job = self.jobs.create_job(
-            file=file_arg,
-            webhook_url=webhook_url,
-            idempotency_key=key,
-            request_options=request_options,
-        )
+        try:
+            job = self.create_job(
+                file=file_arg,
+                webhook_url=webhook_url,
+                idempotency_key=key,
+                request_options=request_options,
+            )
+        finally:
+            close_file()
         started = time.monotonic()
         while True:
             status = self.jobs.get_job(job.job_id, request_options=request_options)
@@ -175,6 +241,23 @@ class AsyncA11yfy(AsyncBaseA11yfy):
                 kwargs["token"] = env_token
         super().__init__(*args, **kwargs)
 
+    async def create_job(
+        self,
+        *,
+        file: typing.Any,
+        webhook_url: typing.Optional[str] = None,
+        idempotency_key: str,
+        request_options: typing.Optional[RequestOptions] = None,
+    ) -> JobCreateResponse:
+        """Async típushelyes create_job — lásd A11yfy.create_job (6-SDK-P0.2)."""
+        response = await self.jobs.with_raw_response.create_job(
+            file=file,
+            webhook_url=webhook_url,
+            idempotency_key=idempotency_key,
+            request_options=request_options,
+        )
+        return _parse_create_job(response)
+
     async def remediate(
         self,
         file: FileInput,
@@ -187,16 +270,19 @@ class AsyncA11yfy(AsyncBaseA11yfy):
         request_options: typing.Optional[RequestOptions] = None,
     ) -> JobResultResponse:
         """Async variant of A11yfy.remediate()."""
-        file_arg, digest = _prepare_file(file)
+        file_arg, digest, close_file = _prepare_file(file)
         # Streams have no hash — fall back to a random UUID so the required
         # Idempotency-Key header is always present (server rejects without it).
         key = idempotency_key or digest or str(uuid.uuid4())
-        job = await self.jobs.create_job(
-            file=file_arg,
-            webhook_url=webhook_url,
-            idempotency_key=key,
-            request_options=request_options,
-        )
+        try:
+            job = await self.create_job(
+                file=file_arg,
+                webhook_url=webhook_url,
+                idempotency_key=key,
+                request_options=request_options,
+            )
+        finally:
+            close_file()
         started = time.monotonic()
         while True:
             status = await self.jobs.get_job(job.job_id, request_options=request_options)

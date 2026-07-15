@@ -63,6 +63,14 @@ export class JobFailedError extends Error {
 
 export type FileInput = string | Buffer | core.file.Uploadable;
 
+/**
+ * A createJob VALÓDI válasz-uniója (audit 6-SDK-P0.2): a szerver 202-re
+ * JobAcceptedResponse-t ad — benne az EGYSZER kiadott webhook.signing_secret —,
+ * 200-ra JobAlreadyValidResponse-t. A generált `jobs.createJob` típusa minden
+ * 2xx-et AlreadyValid-nek deklarál, így a signing_secret típus-szinten elveszett.
+ */
+export type JobCreateResponse = A11yfy.JobAcceptedResponse | A11yfy.JobAlreadyValidResponse;
+
 export interface RemediateOptions {
     /** Callback URL for the HMAC-signed completion webhook. */
     webhookUrl?: string;
@@ -76,12 +84,23 @@ export interface RemediateOptions {
     certificateWaitMs?: number;
 }
 
-function prepareFile(file: FileInput): { upload: core.file.Uploadable; sha256?: string } {
+/** Chunkolt SHA-256 fájlból — a fájl SOSEM kerül egyben memóriába (6-SDK-P0.1). */
+async function sha256File(filePath: string): Promise<string> {
+    const hash = createHash("sha256");
+    for await (const chunk of fs.createReadStream(filePath)) {
+        hash.update(chunk as Buffer);
+    }
+    return hash.digest("hex");
+}
+
+async function prepareFile(file: FileInput): Promise<{ upload: core.file.Uploadable; sha256?: string }> {
     if (typeof file === "string") {
-        const data = fs.readFileSync(file);
-        const sha256 = createHash("sha256").update(data).digest("hex");
+        // 6-SDK-P0.1: streaming SHA + fájl-hátterű Blob (fs.openAsBlob, Node 20+)
+        // — egy 300 MB-os PDF sem kerül egyben memóriába.
+        const sha256 = await sha256File(file);
+        const blob = await fs.openAsBlob(file, { type: "application/pdf" });
         return {
-            upload: new File([new Uint8Array(data)], path.basename(file), { type: "application/pdf" }),
+            upload: new File([blob], path.basename(file), { type: "application/pdf" }),
             sha256,
         };
     }
@@ -120,6 +139,25 @@ export class A11yfyClient extends FernClient {
     }
 
     /**
+     * Típushelyes createJob (audit 6-SDK-P0.2): 202 → JobAcceptedResponse
+     * (benne a webhook.signing_secret, amit a szerver CSAK EGYSZER ad ki),
+     * 200 → JobAlreadyValidResponse. Webhookos integrációnál EZT használd a
+     * `jobs.createJob` helyett.
+     */
+    public async createJob(
+        request: Parameters<FernClient["jobs"]["createJob"]>[0],
+        requestOptions?: Parameters<FernClient["jobs"]["createJob"]>[1],
+    ): Promise<JobCreateResponse> {
+        const { data, rawResponse } = await this.jobs
+            .createJob(request, requestOptions)
+            .withRawResponse();
+        if (rawResponse.status === 202) {
+            return data as unknown as A11yfy.JobAcceptedResponse;
+        }
+        return data;
+    }
+
+    /**
      * Upload a PDF, wait for remediation and return the final result.
      *
      * @throws {JobFailedError} when the job fails
@@ -137,10 +175,10 @@ export class A11yfyClient extends FernClient {
             certificateWaitMs = DEFAULT_CERTIFICATE_WAIT_MS,
         } = options;
 
-        const { upload, sha256 } = prepareFile(file);
+        const { upload, sha256 } = await prepareFile(file);
         // Streams have no hash — fall back to a random UUID so the required
         // Idempotency-Key header is always present (server rejects without it).
-        const job = await this.jobs.createJob({
+        const job = await this.createJob({
             file: upload,
             webhook_url: webhookUrl,
             "Idempotency-Key": idempotencyKey ?? sha256 ?? randomUUID(),
