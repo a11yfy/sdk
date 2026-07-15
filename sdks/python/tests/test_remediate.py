@@ -28,13 +28,26 @@ class _FakeHttpxResponse:
 class _FakeRawJobs:
     """A with_raw_response felület stubja (audit 6-SDK-P0.2 kontraktus)."""
 
-    def __init__(self, owner, status_code, payload):
+    def __init__(self, owner, status_code, payload, raise_parsing=False):
         self._owner = owner
         self._status_code = status_code
         self._payload = payload
+        self._raise_parsing = raise_parsing
 
     def create_job(self, **kwargs):
         self._owner.created_with = kwargs
+        if self._raise_parsing:
+            # A VALÓDI generált raw-kliens viselkedése 202-nél: a body-t a
+            # 200-as (JobAlreadyValidResponse) sémába parszolja → ValidationError
+            # → ParsingError. Élő e2e-vel igazolva (2026-07-16).
+            from a11yfy.core.parse_error import ParsingError
+
+            raise ParsingError(
+                status_code=self._status_code,
+                headers={},
+                body=dict(self._payload),
+                cause=None,
+            )
         return _Obj(
             response=_FakeHttpxResponse(self._status_code, self._payload),
             data=_Obj(job_id=self._payload["job_id"], status="pending"),
@@ -53,15 +66,20 @@ _ACCEPTED_PAYLOAD = {
 class StubJobs:
     """create→(processing…)→terminal szekvenciát játszik le."""
 
-    def __init__(self, statuses, result_status="done", create_status_code=202):
+    def __init__(
+        self, statuses, result_status="done", create_status_code=202, raise_parsing=False
+    ):
         self.statuses = list(statuses)
         self.result_status = result_status
         self.created_with = None
         self._create_status_code = create_status_code
+        self._raise_parsing = raise_parsing
 
     @property
     def with_raw_response(self):
-        return _FakeRawJobs(self, self._create_status_code, dict(_ACCEPTED_PAYLOAD))
+        return _FakeRawJobs(
+            self, self._create_status_code, dict(_ACCEPTED_PAYLOAD), self._raise_parsing
+        )
 
     def get_job(self, job_id, **kwargs):
         status = self.statuses.pop(0) if self.statuses else "done"
@@ -121,6 +139,18 @@ def test_create_job_202_returns_accepted_with_signing_secret():
     """6-SDK-P0.2 regresszió: a 202 JobAcceptedResponse-t ad, a
     webhook.signing_secret NEM veszhet el."""
     stub = StubJobs(["done"], create_status_code=202)
+    client = make_client(stub)
+    job = client.create_job(file=b"%PDF fake", idempotency_key="k")
+    assert isinstance(job, JobAcceptedResponse)
+    assert job.webhook is not None
+    assert job.webhook.signing_secret == "whsec_abc123"
+
+
+def test_create_job_202_parsing_error_path():
+    """A generált raw-kliens 202-nél ParsingError-t dob (a 200-as sémába
+    parszol) — az overlay-nek ebből kell JobAcceptedResponse-t adnia.
+    Élő szerver ellen igazolt viselkedés (webhook e2e, 2026-07-16)."""
+    stub = StubJobs(["done"], create_status_code=202, raise_parsing=True)
     client = make_client(stub)
     job = client.create_job(file=b"%PDF fake", idempotency_key="k")
     assert isinstance(job, JobAcceptedResponse)

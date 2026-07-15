@@ -17,6 +17,7 @@ import typing
 import uuid
 
 from .client import AsyncBaseA11yfy, BaseA11yfy
+from .core.parse_error import ParsingError
 from .core.pydantic_utilities import parse_obj_as
 from .core.request_options import RequestOptions
 from .types.job_accepted_response import JobAcceptedResponse
@@ -174,12 +175,25 @@ class A11yfy(BaseA11yfy):
         parszolt, így a secret némán elveszett. Webhookos integrációnál
         EZT a metódust használd a `jobs.create_job` helyett.
         """
-        response = self.jobs.with_raw_response.create_job(
-            file=file,
-            webhook_url=webhook_url,
-            idempotency_key=idempotency_key,
-            request_options=request_options,
-        )
+        # A generált raw-kliens MÁR a visszaadás előtt a 200-as
+        # (JobAlreadyValidResponse) sémába parszolja a 2xx-body-t, így a
+        # 202-es (JobAcceptedResponse) válasz ValidationError→ParsingError-ként
+        # bukik ki — a státuszkód-ág ide, az except-be kerül (élő e2e-vel
+        # igazolva, 2026-07-16).
+        try:
+            response = self.jobs.with_raw_response.create_job(
+                file=file,
+                webhook_url=webhook_url,
+                idempotency_key=idempotency_key,
+                request_options=request_options,
+            )
+        except ParsingError as e:
+            if e.status_code == 202:
+                return typing.cast(
+                    JobAcceptedResponse,
+                    parse_obj_as(type_=JobAcceptedResponse, object_=e.body),  # type: ignore[arg-type]
+                )
+            raise
         return _parse_create_job(response)
 
     def remediate(
@@ -250,12 +264,21 @@ class AsyncA11yfy(AsyncBaseA11yfy):
         request_options: typing.Optional[RequestOptions] = None,
     ) -> JobCreateResponse:
         """Async típushelyes create_job — lásd A11yfy.create_job (6-SDK-P0.2)."""
-        response = await self.jobs.with_raw_response.create_job(
-            file=file,
-            webhook_url=webhook_url,
-            idempotency_key=idempotency_key,
-            request_options=request_options,
-        )
+        # Ugyanaz a 202→ParsingError kerülőút, mint a sync változatban.
+        try:
+            response = await self.jobs.with_raw_response.create_job(
+                file=file,
+                webhook_url=webhook_url,
+                idempotency_key=idempotency_key,
+                request_options=request_options,
+            )
+        except ParsingError as e:
+            if e.status_code == 202:
+                return typing.cast(
+                    JobAcceptedResponse,
+                    parse_obj_as(type_=JobAcceptedResponse, object_=e.body),  # type: ignore[arg-type]
+                )
+            raise
         return _parse_create_job(response)
 
     async def remediate(
