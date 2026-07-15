@@ -70,5 +70,9 @@ jobs:
           test "$TAG_VERSION" = "$PKG_VERSION" || { echo "tag $TAG_VERSION != package.json $PKG_VERSION"; exit 1; }
       - name: Install
         run: npm ci
+      - name: Upgrade npm for OIDC trusted publishing
+        # A Node 22 bundled npm-je (10.x) nem támogatja az OIDC-t — ahhoz
+        # npm >= 11.5.1 kell, különben a publish 404-gyel bukik.
+        run: npm install -g npm@latest
       - name: Publish to npm (OIDC, prepublishOnly futtatja a check+build+test-et)
         run: npm publish --access public
