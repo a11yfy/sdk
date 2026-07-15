@@ -31,6 +31,7 @@ accessible. Most PDFs aren't. a11yfy fixes them automatically:
 - ✅ **Machine-validated** — every output is checked with veraPDF before you get it
 - 📜 **Compliance certificate** — Ed25519-signed, publicly verifiable proof for audits
 - 💰 **No double billing** — retrying the same file within 24h returns the same job
+- 🆓 **Already compliant? Free.** — compliant PDFs are detected up front and returned without consuming credits
 
 ## Packages
 
@@ -78,9 +79,11 @@ console.log(result.output_url);              // the remediated, accessible PDF
 console.log(result.certificate?.verify_url); // public proof of compliance
 ```
 
-`remediate()` accepts a file path, raw bytes/`Buffer`, or a stream. It throws a
-typed `JobFailedError` / `RemediationTimeoutError` — a timed-out job keeps
-running server-side and can still be polled.
+`remediate()` accepts a file path, raw bytes/`Buffer`, or a stream. Path inputs
+are streamed — hashing and upload never load the whole file into memory, so
+documents up to the 300 MB limit are fine. It throws a typed `JobFailedError` /
+`RemediationTimeoutError` — a timed-out job keeps running server-side and can
+still be polled.
 
 ## How it works
 
@@ -131,7 +134,10 @@ exact file was certified.
 ## Webhooks
 
 Skip polling: pass a `webhook_url` and verify the HMAC-signed callback with
-the built-in helper (constant-time compare, replay protection):
+the built-in helper (constant-time compare, replay protection). The signing
+secret is returned **once**, in the job-creation response that first registers
+the `webhook_url` (`signing_secret` — it stays visible in the web UI under
+*Settings → Organization → API keys*):
 
 ```python
 from a11yfy import Webhook, WebhookVerificationError
