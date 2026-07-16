@@ -24,13 +24,14 @@ with a **verifiable compliance certificate**.
 
 ## Why
 
-The **European Accessibility Act (EAA)** requires digital documents to be
-accessible. Most PDFs aren't. a11yfy fixes them automatically:
+The **European Accessibility Act (EAA)** and US regulations like the **ADA**
+and **Section 508** require digital documents to be accessible. Most PDFs
+aren't. a11yfy fixes them automatically:
 
 - 🏷️ **Full PDF/UA-1 tagging** — headings, lists, tables, reading order, figures with AI alt text
 - ✅ **Machine-validated** — every output is checked with veraPDF before you get it
 - 📜 **Compliance certificate** — Ed25519-signed, publicly verifiable proof for audits
-- 💰 **No double billing** — retrying the same file within 24h returns the same job
+- 🔌 **Built for your backend** — drop PDF accessibility into your own document workflow with a few lines of code
 - 🆓 **Already compliant? Free.** — compliant PDFs are detected up front and returned without consuming credits
 
 ## Packages
